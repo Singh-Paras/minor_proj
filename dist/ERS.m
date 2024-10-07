@@ -27,8 +27,12 @@ sim_KL1_ERS = cell(1, length(K));
 
 %% Superpixel Segmentation ERS
 for i = 1:length(K)
+    fprintf('Starting superpixel segmentation for K=%d\n', K(i));
+    
     sp_label_ERS(:, :, i) = mymex_ers(double(Salinas_pca_3), Nk(i), 0.05, 5);  % ERS superpixel segmentation
     num_label_ERS(i) = max(sp_label_ERS(:, :, i), [], 'all') + 1;
+    
+    fprintf('Superpixel segmentation completed for K=%d with %d labels\n', K(i), num_label_ERS(i));
     
     %% Compute Distances Between Superpixels
     band_feature_ERS{i} = SpRectangle(sp_label_ERS(:, :, i), num_label_ERS(i), cube_data_nm);
@@ -38,10 +42,18 @@ for i = 1:length(K)
     sim_KL1_ERS{i} = zeros(pages, pages);
     
     % Preallocate temporary storage for vectorized KL computation
-    temp_P = [];
-    temp_Q = [];
+    % Estimate total number of pairs (assuming no empty vectors)
+    estimated_pairs = num_label_ERS(i) * (pages * (pages - 1)) / 2;
+    % Determine the size of feature vectors
+    sample_feature = band_feature_ERS{i}{1}(:, :, 1);
+    feature_length = length(sample_feature(:)) + 1;  % Adding eps
+    
+    P = zeros(feature_length, estimated_pairs);
+    Q = zeros(feature_length, estimated_pairs);
+    count = 1;
     
     for t = 1:num_label_ERS(i)
+        fprintf('Processing superpixel %d of %d for distance computations\n', t, num_label_ERS(i));
         for j = 1:pages-1
             Vj = band_feature_ERS{i}{t}(:, :, j);
             Vj(isnan(Vj)) = [];
@@ -50,19 +62,31 @@ for i = 1:length(K)
                 Vk(isnan(Vk)) = [];
                 
                 if isempty(Vj) || isempty(Vk)
+                    fprintf('Empty vector encountered at i=%d, t=%d, j=%d, k=%d. Skipping.\n', i, t, j, k);
                     continue;
                 end
                 
-                % Accumulate vectors
-                temp_P = [temp_P; Vj(:)' + eps];
-                temp_Q = [temp_Q; Vk(:)' + eps];
+                % Ensure feature vectors have consistent length
+                if length(Vj(:)) ~= (feature_length - 1) || length(Vk(:)) ~= (feature_length - 1)
+                    fprintf('Inconsistent feature length at i=%d, t=%d, j=%d, k=%d. Skipping.\n', i, t, j, k);
+                    continue;
+                end
+                
+                % Assign to P and Q
+                P(:, count) = [Vj(:)'; 0] + eps;  % Pad if necessary
+                Q(:, count) = [Vk(:)'; 0] + eps;  % Pad if necessary
+                count = count + 1;
             end
         end
     end
     
+    % Trim unused preallocated space
+    P = P(:, 1:count-1);
+    Q = Q(:, 1:count-1);
+    
     % Compute KL divergence in bulk
-    if ~isempty(temp_P) && ~isempty(temp_Q)
-        D_KL = vectorizedKL(temp_P', temp_Q');
+    if ~isempty(P) && ~isempty(Q)
+        D_KL = vectorizedKL(P, Q);  % Vectorized KL
     else
         D_KL = [];
     end
@@ -77,8 +101,11 @@ for i = 1:length(K)
                 end
                 sim_KL_ERS{i}(j, k, t) = D_KL(idx);
                 sim_KL_ERS{i}(k, j, t) = D_KL(idx);
+                
+                % Compute L2 norm
                 sim_L2_ERS{i}(j, k, t) = norm(band_feature_ERS{i}{t}(:, :, j) - band_feature_ERS{i}{t}(:, :, k), 2) / pages;
                 sim_L2_ERS{i}(k, j, t) = sim_L2_ERS{i}(j, k, t);
+                
                 idx = idx + 1;
             end
         end
@@ -102,7 +129,7 @@ for i = 1:length(K)
     end
     
     % Clear temporary variables to save memory
-    clear temp_P temp_Q D_KL
+    clear temp_P temp_Q D_KL P Q
 end
 
 % Save the results
