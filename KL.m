@@ -1,27 +1,23 @@
-function D = KL(p, q)
-    %KL Computes the Kullback-Leibler divergence between two distributions
-    %   D = KL(p, q) computes the KL divergence of q from p.
+function D = vectorizedKL(P, Q)
+    %VECTORIZEDKL Computes the KL divergence between multiple pairs of distributions
+    %   D = VECTORIZEDKL(P, Q) computes the KL divergence for each pair of columns in P and Q
     %
     %   Inputs:
-    %       p - Probability distribution vector (must sum to 1)
-    %       q - Probability distribution vector (must sum to 1)
+    %       P - Matrix where each column is a probability distribution
+    %       Q - Matrix where each column is a probability distribution
     %
     %   Output:
-    %       D - KL divergence value
+    %       D - Vector of KL divergence values for each pair
     
-        % Ensure p and q are column vectors
-        p = p(:);
-        q = q(:);
-        
-        % Add a small constant to avoid log(0) and division by zero
+        % Add epsilon to avoid log(0) and division by zero
         epsilon = 1e-10;
-        p = p + epsilon;
-        q = q + epsilon;
+        P = P + epsilon;
+        Q = Q + epsilon;
         
-        % Normalize the distributions to ensure they sum to 1
-        p = p / sum(p);
-        q = q / sum(q);
+        % Normalize the distributions
+        P = P ./ sum(P, 1);
+        Q = Q ./ sum(Q, 1);
         
         % Compute KL divergence
-        D = sum(p .* log(p ./ q));
+        D = sum(P .* log(P ./ Q), 1);
     end
